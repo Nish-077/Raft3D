@@ -1,0 +1,6 @@
+[submodule "external/NuRaft"]
+	path = external/NuRaft
+	url = https://github.com/eBay/NuRaft.git
+[submodule "external/Crow"]
+	path = external/Crow
+	url = https://github.com/CrowCpp/Crow.git
