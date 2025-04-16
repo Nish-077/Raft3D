@@ -14,3 +14,6 @@ add_executable(raft3d
 # Boost is required for Crow
 find_package(Boost REQUIRED)
 include_directories(${Boost_INCLUDE_DIRS})
+
+find_package(Threads REQUIRED)
+target_link_libraries(raft3d PRIVATE Threads::Threads)
