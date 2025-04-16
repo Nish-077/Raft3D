@@ -62,7 +62,7 @@ Install the required dependencies on your system:
 
 ```bash
 sudo apt update
-sudo apt install build-essential cmake libboost-all-dev libssl-dev libcurl4-openssl-dev uuid-dev libuv1-dev libasio-dev g++
+sudo apt install build-essential cmake libboost-all-dev libssl-dev libcurl4-openssl-dev uuid-dev libuv1-dev libasio-dev g++ zlib1g-dev libsnappy-dev libbz2-dev libgflags-dev liblz4-dev libzstd-dev
 ```
 
 ### 4. Build the Project

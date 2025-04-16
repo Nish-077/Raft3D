@@ -4,3 +4,6 @@
 [submodule "external/Crow"]
 	path = external/Crow
 	url = https://github.com/CrowCpp/Crow.git
+[submodule "external/rocksdb"]
+	path = external/rocksdb
+	url = https://github.com/facebook/rocksdb.git
