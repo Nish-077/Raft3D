@@ -1,0 +1,12 @@
+sudo apt update
+sudo apt install -y \
+  build-essential \
+  cmake \
+  libprotobuf-dev \
+  protobuf-compiler \
+  libgrpc++-dev \
+  libssl-dev \
+  zlib1g-dev \
+  libgflags-dev \
+  libgtest-dev \
+  libboost-all-dev
