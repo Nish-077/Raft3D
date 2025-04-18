@@ -1,4 +1,4 @@
-#include "log_store.hxx"
+#include "libnuraft/log_store.hxx"
 #include "libnuraft/nuraft.hxx" // Includes log_entry, buffer, etc.
 #include "basic_types.hxx"
 #include "rocksdb/db.hxx"
@@ -7,13 +7,12 @@
 #include <vector>
 #include <mutex>
 #include <stdexcept>
+#include <memory>
 #include <iostream>
-#include <limits>    // Required for std::numeric_limits
 #include <algorithm> // Required for std::min/std::max
 
 namespace Raft3D
 {
-
     // --- Helper Functions ---
 
     // Simple serialization for ulong (adjust endianness if needed)
@@ -27,27 +26,25 @@ namespace Raft3D
     {
         if (slice.size() != sizeof(nuraft::ulong))
         {
-            // Handle error: incorrect size
-            return 0; // Or throw
+            // Handle error: incorrect size Or throw
+            return 0; 
         }
         return *reinterpret_cast<const nuraft::ulong *>(slice.data());
     }
 
-    // Serialize log entry using NuRaft's buffer
     inline std::string serialize_log_entry(const nuraft::ptr<nuraft::log_entry> &entry)
     {
         nuraft::ptr<nuraft::buffer> buf = entry->serialize();
         return std::string(reinterpret_cast<const char *>(buf->data_begin()), buf->size());
     }
 
-    // Deserialize log entry using NuRaft's buffer
     inline nuraft::ptr<nuraft::log_entry> deserialize_log_entry(const rocksdb::Slice &slice)
     {
         if (slice.empty())
         {
             return nullptr;
         }
-        // Create a buffer and copy data into it
+
         nuraft::ptr<nuraft::buffer> buf = nuraft::buffer::alloc(slice.size());
         buf->put_raw(reinterpret_cast<const nuraft::byte *>(slice.data()), slice.size());
         buf->pos(0); // Reset position for deserialization
@@ -76,7 +73,7 @@ namespace Raft3D
 
         if (s.IsNotFound())
         {
-            return nullptr; // Entry doesn't exist
+            return nullptr;
         }
         if (!s.ok())
         {
@@ -92,9 +89,7 @@ namespace Raft3D
     const std::string KEY_START_INDEX = "_log_start_index_";
     const std::string KEY_LAST_INDEX = "_log_last_index_";
 
-
     // --- RaftKVLogStore Implementation ---
-
 
     RaftKVLogStore::RaftKVLogStore(std::shared_ptr<rocksdb::DB> rocksdb_instance,
                                    std::shared_ptr<rocksdb::ColumnFamilyHandle> log_column_family_handle)
@@ -150,7 +145,7 @@ namespace Raft3D
         std::lock_guard<std::mutex> lock(log_mutex_);
         if (last_idx_ < start_idx_)
         {                                // Log is empty or only contains dummy index 0
-            return entry_at_internal(0); // Return dummy entry
+            return entry_at_internal(0);
         }
         return entry_at_internal(last_idx_);
     }
@@ -412,8 +407,8 @@ namespace Raft3D
         }
 
         // Update metadata - potentially update both start and last index
-        bool metadata_updated = false; // Tracks if last_idx_ needs update
-        bool start_idx_needs_update = false; // Track if start_idx_ needs update
+        bool metadata_updated = false;            // Tracks if last_idx_ needs update
+        bool start_idx_needs_update = false;      // Track if start_idx_ needs update
         nuraft::ulong new_start_idx = start_idx_; // Keep track of potential new start index
 
         if (index < start_idx_)
@@ -439,7 +434,8 @@ namespace Raft3D
         }
 
         // Add start index update to the batch if needed
-        if (start_idx_needs_update) {
+        if (start_idx_needs_update)
+        {
             std::string start_idx_val = serialize_ulong(new_start_idx);
             batch.Put(db_->DefaultColumnFamily(), KEY_START_INDEX, start_idx_val);
         }
