@@ -116,23 +116,13 @@ namespace Raft3D
         }
 
         std::string value;
-        if (value_type == 0)
-        { // int
-            if (value_size != sizeof(int))
-            {
-                std::cerr << "Commit: int value size mismatch" << std::endl;
-                return nullptr;
-            }
-            int int_val = *reinterpret_cast<const int *>(data.data_begin() + data.pos());
-            value = std::to_string(int_val); // Store as string in RocksDB
-        }
-        else if (value_type == 1)
-        { // string
+        if (value_type == 1)
+        { // string (JSON or any string)
             value.assign(reinterpret_cast<const char *>(data.data_begin() + data.pos()), value_size);
         }
         else
         {
-            std::cerr << "Commit: unknown value type" << std::endl;
+            std::cerr << "Commit: Only string values are supported in this implementation." << std::endl;
             return nullptr;
         }
 
@@ -250,6 +240,7 @@ namespace Raft3D
             std::cerr << "Get: RocksDB Get failed for key '" << key << "': " << s.ToString() << std::endl;
             return false;
         }
+        // value_out will be the JSON string as stored
         return true;
     }
 
