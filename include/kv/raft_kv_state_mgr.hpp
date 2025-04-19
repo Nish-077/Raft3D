@@ -2,7 +2,7 @@
 
 #include "libnuraft/nuraft.hxx"
 #include <rocksdb/db.h>
-#include "raft_server.hpp"
+#include "raft3d_server.hpp"
 #include <vector>
 #include <string>
 #include <memory>
@@ -14,12 +14,12 @@ namespace Raft3D
         private:
             int my_server_id_;
             std::shared_ptr<rocksdb::DB> db_;
-            std::vector<RaftServer> initial_peers_;
+            std::vector<Raft3DServer> initial_peers_;
             nuraft::ptr<nuraft::log_store> log_store_;
             std::shared_ptr<rocksdb::ColumnFamilyHandle> log_cf_handle_;
         
         public:    
-            RaftKVStateManager(int _server_id, std::shared_ptr<rocksdb::DB> rocksdb_instance, std::shared_ptr<rocksdb::ColumnFamilyHandle> log_column_family_handle, const std::vector<RaftServer>& initial_peers);
+            RaftKVStateManager(int _server_id, std::shared_ptr<rocksdb::DB> rocksdb_instance, std::shared_ptr<rocksdb::ColumnFamilyHandle> log_column_family_handle, const std::vector<Raft3DServer>& initial_peers);
             ~RaftKVStateManager() override;
 
             nuraft::ptr<nuraft::cluster_config> load_config() override;

@@ -2,7 +2,7 @@
 #include <rocksdb/db.h>
 #include "kv/raft_kv_state_mgr.hpp"
 #include "kv/raft_kv_log_store.hpp" 
-#include "raft_server.hpp"
+#include "raft3d_server.hpp"
 #include <vector>
 #include <string>
 #include <iostream> // For system_exit logging
@@ -59,7 +59,7 @@ namespace Raft3D
     RaftKVStateManager::RaftKVStateManager(int server_id,
                                            std::shared_ptr<rocksdb::DB> rocksdb_instance,
                                            std::shared_ptr<rocksdb::ColumnFamilyHandle> log_column_family_handle,
-                                           const std::vector<RaftServer> &initial_peers)
+                                           const std::vector<Raft3DServer> &initial_peers)
         : my_server_id_(server_id),
           db_(rocksdb_instance),
           log_cf_handle_(log_column_family_handle),
