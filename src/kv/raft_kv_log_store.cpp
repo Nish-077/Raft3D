@@ -1,6 +1,4 @@
-#include "libnuraft/log_store.hxx"
 #include "libnuraft/nuraft.hxx" // Includes log_entry, buffer, etc.
-#include "libnuraft/basic_types.hxx"
 #include "rocksdb/db.hxx"
 #include <rocksdb/write_batch.h>
 #include "kv/raft_kv_log_store.hpp"

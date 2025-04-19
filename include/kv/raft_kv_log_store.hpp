@@ -1,8 +1,6 @@
 #pragma once
 
-#include "libnuraft/log_store.hxx"
 #include "libnuraft/nuraft.hxx"
-#include "libnuraft/basic_types.hxx"
 #include "rocksdb/db.hxx"
 #include <vector>
 #include <mutex>
