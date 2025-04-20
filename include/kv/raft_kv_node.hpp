@@ -15,17 +15,19 @@ namespace Raft3D
         nuraft::ptr<nuraft::raft_server> server_;
         nuraft::ptr<nuraft::raft_launcher> launcher_;
         nuraft::ptr<nuraft::logger> my_logger_ = nullptr;
-        nuraft::ptr<RaftKVStateMachine> my_state_machine_;
-        nuraft::ptr<RaftKVStateManager> my_state_mgr;
-
-        int _putKey(std::string key, std::string value);
-        int _getKey(std::string key, std::string &value);
+        nuraft::ptr<nuraft::state_machine> my_state_machine_;
+        nuraft::ptr<nuraft::state_mgr> my_state_mgr;
+        nuraft::ptr<nuraft::context> ctx_;
 
     public:
-        RaftKVNode(int id, int raftPort, nuraft::ptr<RaftKVStateMachine> stateMachine, nuraft::ptr<RaftKVStateManager> stateManager);
+        RaftKVNode(int id, int raftPort, nuraft::ptr<RaftKVStateMachine> stateMachine, nuraft::ptr<RaftKVStateManager> stateManager, nuraft::ptr<nuraft::rpc_client_factory> rpc_factory);
         ~RaftKVNode();
 
+        int put_key(const std::string& key, const std::string& value);
+        int get_key(std::string key, std::string &value);
         int addServer(int id, std::string address);
         int listServers(std::vector<Raft3DServer> &servers);
+        nuraft::ptr<nuraft::context> get_context() { return ctx_; }
+        nuraft::ptr<nuraft::raft_server> get_server() const { return server_; }
     };
 }
