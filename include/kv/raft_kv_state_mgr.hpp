@@ -20,7 +20,7 @@ namespace Raft3D
         
         public:    
             RaftKVStateManager(int _server_id, std::shared_ptr<rocksdb::DB> rocksdb_instance, std::shared_ptr<rocksdb::ColumnFamilyHandle> log_column_family_handle, const std::vector<Raft3DServer>& initial_peers);
-            ~RaftKVStateManager() override;
+            ~RaftKVStateManager() override = default;
 
             nuraft::ptr<nuraft::cluster_config> load_config() override;
             nuraft::ptr<nuraft::srv_state> read_state() override;
@@ -29,5 +29,5 @@ namespace Raft3D
             void save_state(const nuraft::srv_state& state) override;
             void system_exit(const int exit_code) override;
             int server_id() override;
-    }
+    };
 } // namespace Raft3D

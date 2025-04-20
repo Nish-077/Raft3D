@@ -89,29 +89,39 @@ namespace Raft3D
     {
         std::lock_guard<std::mutex> lock(db_mutex_);
 
+        std::cout << "[commit] buffer size: " << data.size() << std::endl;
+        data.pos(0);
+
         // [key_size][key][value_type][value_size][value]
         if (data.size() < 9)
         { // 4+1+4 minimum
-            std::cerr << "Commit: buffer too small" << std::endl;
+            std::cerr << "[commit] buffer too small" << std::endl;
             return nullptr;
         }
 
-        data.pos(0);
-        uint32_t key_size = data.get_int();
-        if (data.pos() + key_size + 1 + 4 > data.size())
+        auto key_size = data.get_ulong();
+        std::cout << "[commit] key_size: " << key_size << ", pos: " << data.pos() << std::endl;
+
+        if (data.pos() + key_size + 1 + sizeof(nuraft::ulong) > data.size())
         {
-            std::cerr << "Commit: buffer key size mismatch" << std::endl;
+            std::cerr << "[commit] buffer key size mismatch" << std::endl;
             return nullptr;
         }
+
         std::string key(reinterpret_cast<const char *>(data.data_begin() + data.pos()), key_size);
+        std::cout << "[commit] key: " << key << std::endl;
 
         data.pos(data.pos() + key_size);
-        uint8_t value_type = *(data.data_begin() + data.pos());
-        data.pos(data.pos() + 1);
-        uint32_t value_size = data.get_int();
+
+        auto value_type = data.get_byte();
+        std::cout << "[commit] value_type: " << (int)value_type << ", pos: " << data.pos() << std::endl;
+
+        auto value_size = data.get_ulong();
+        std::cout << "[commit] value_size: " << value_size << ", pos: " << data.pos() << std::endl;
+
         if (data.pos() + value_size > data.size())
         {
-            std::cerr << "Commit: buffer value size mismatch" << std::endl;
+            std::cerr << "[commit] buffer value size mismatch" << std::endl;
             return nullptr;
         }
 
@@ -119,10 +129,11 @@ namespace Raft3D
         if (value_type == 1)
         { // string (JSON or any string)
             value.assign(reinterpret_cast<const char *>(data.data_begin() + data.pos()), value_size);
+            std::cout << "[commit] value: " << value << std::endl;
         }
         else
         {
-            std::cerr << "Commit: Only string values are supported in this implementation." << std::endl;
+            std::cerr << "[commit] Only string values are supported in this implementation." << std::endl;
             return nullptr;
         }
 
@@ -130,7 +141,7 @@ namespace Raft3D
         rocksdb::Status s = db_->Put(rocksdb::WriteOptions(), app_state_cf_handle_.get(), key, value);
         if (!s.ok())
         {
-            std::cerr << "Commit: RocksDB Put failed: " << s.ToString() << std::endl;
+            std::cerr << "[commit] RocksDB Put failed: " << s.ToString() << std::endl;
             return nullptr;
         }
 
@@ -141,7 +152,7 @@ namespace Raft3D
         s = db_->Put(rocksdb::WriteOptions(), db_->DefaultColumnFamily(), KEY_LAST_APPLIED_IDX, idx_str);
         if (!s.ok())
         {
-            std::cerr << "Commit: Failed to update last_committed_idx_: " << s.ToString() << std::endl;
+            std::cerr << "[commit] Failed to update last_committed_idx_: " << s.ToString() << std::endl;
         }
 
         return nullptr; // No return value needed for simple KV
@@ -218,7 +229,7 @@ namespace Raft3D
         std::lock_guard<std::mutex> lock(db_mutex_);
 
         // Return a snapshot object with last_committed_idx_ and last_snapshot_term_
-        return nuraft::cs_new<nuraft::snapshot>(last_snapshot_idx_, last_snapshot_term_);
+        return nuraft::cs_new<nuraft::snapshot>(last_snapshot_idx_, last_snapshot_term_, nullptr);
     }
 
     // --- Last Commit Index ---
