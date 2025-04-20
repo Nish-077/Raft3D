@@ -1,5 +1,5 @@
 #include "libnuraft/nuraft.hxx" // Includes log_entry, buffer, etc.
-#include "rocksdb/db.hxx"
+#include "rocksdb/db.h"
 #include <rocksdb/write_batch.h>
 #include "kv/raft_kv_log_store.hpp"
 #include <vector>
@@ -67,7 +67,7 @@ namespace Raft3D
 
         std::string key = serialize_ulong(index);
         std::string value_str;
-        rocksdb::Status s = db_->Get(rocksdb::ReadOptions(), log_cf_handle_, key, &value_str);
+        rocksdb::Status s = db_->Get(rocksdb::ReadOptions(), log_cf_handle_.get(), rocksdb::Slice(key), &value_str);
 
         if (s.IsNotFound())
         {
@@ -107,14 +107,14 @@ namespace Raft3D
 
         // Load persistent start and last indices on initialization
         std::string val_str;
-        rocksdb::Status s = db_->Get(rocksdb::ReadOptions(), db_->DefaultColumnFamily(), KEY_START_INDEX, &val_str);
+        rocksdb::Status s = db_->Get(rocksdb::ReadOptions(), db_->DefaultColumnFamily(), rocksdb::Slice(KEY_START_INDEX), &val_str);
         if (s.ok())
         {
             start_idx_ = deserialize_ulong(val_str);
         }
         // If start index is not found, it remains 1 (default)
 
-        s = db_->Get(rocksdb::ReadOptions(), db_->DefaultColumnFamily(), KEY_LAST_INDEX, &val_str);
+        s = db_->Get(rocksdb::ReadOptions(), db_->DefaultColumnFamily(), rocksdb::Slice(KEY_LAST_INDEX), &val_str);
         if (s.ok())
         {
             last_idx_ = deserialize_ulong(val_str);
@@ -156,11 +156,11 @@ namespace Raft3D
         rocksdb::WriteBatch batch;
         std::string key = serialize_ulong(idx_to_append);
         std::string val = serialize_log_entry(entry);
-        batch.Put(log_cf_handle_, key, val);
+        batch.Put(log_cf_handle_.get(), rocksdb::Slice(key), rocksdb::Slice(val));
 
         // Update last index metadata
         std::string last_idx_val = serialize_ulong(idx_to_append);
-        batch.Put(db_->DefaultColumnFamily(), KEY_LAST_INDEX, last_idx_val);
+        batch.Put(db_->DefaultColumnFamily(), rocksdb::Slice(KEY_LAST_INDEX), rocksdb::Slice(last_idx_val));
 
         rocksdb::Status s = db_->Write(rocksdb::WriteOptions(), &batch);
         if (!s.ok())
@@ -197,17 +197,17 @@ namespace Raft3D
             // RocksDB DeleteRange is exclusive for the end key, so delete up to last+1
             std::string start_key = serialize_ulong(index);
             std::string end_key = serialize_ulong(current_last + 1);
-            batch.DeleteRange(log_cf_handle_, start_key, end_key);
+            batch.DeleteRange(log_cf_handle_.get(), rocksdb::Slice(start_key), rocksdb::Slice(end_key));
         }
 
         // Write the new entry at 'index'
         std::string key = serialize_ulong(index);
         std::string val = serialize_log_entry(entry);
-        batch.Put(log_cf_handle_, key, val);
+        batch.Put(log_cf_handle_.get(), rocksdb::Slice(key), rocksdb::Slice(val));
 
         // Update last index metadata
         std::string last_idx_val = serialize_ulong(new_last);
-        batch.Put(db_->DefaultColumnFamily(), KEY_LAST_INDEX, last_idx_val);
+        batch.Put(db_->DefaultColumnFamily(), rocksdb::Slice(KEY_LAST_INDEX), rocksdb::Slice(last_idx_val));
 
         rocksdb::Status s = db_->Write(rocksdb::WriteOptions(), &batch);
         if (!s.ok())
@@ -241,7 +241,7 @@ namespace Raft3D
         entries->reserve(end - start);
 
         rocksdb::ReadOptions read_options;
-        std::unique_ptr<rocksdb::Iterator> it(db_->NewIterator(read_options, log_cf_handle_));
+        std::unique_ptr<rocksdb::Iterator> it(db_->NewIterator(read_options, log_cf_handle_.get()));
         std::string start_key = serialize_ulong(start);
 
         for (it->Seek(start_key); it->Valid(); it->Next())
@@ -320,7 +320,7 @@ namespace Raft3D
         serialized_entries.reserve(cnt);
 
         rocksdb::ReadOptions read_options;
-        std::unique_ptr<rocksdb::Iterator> it(db_->NewIterator(read_options, log_cf_handle_));
+        std::unique_ptr<rocksdb::Iterator> it(db_->NewIterator(read_options, log_cf_handle_.get()));
         std::string start_key = serialize_ulong(index);
 
         for (it->Seek(start_key); it->Valid() && serialized_entries.size() < (size_t)cnt; it->Next())
@@ -400,7 +400,7 @@ namespace Raft3D
             rocksdb::Slice val_slice(reinterpret_cast<const char *>(pack.data_begin() + pack.pos()), buf_size);
             std::string key = serialize_ulong(current_idx);
 
-            batch.Put(log_cf_handle_, key, val_slice);
+            batch.Put(log_cf_handle_.get(), rocksdb::Slice(key), val_slice);
             pack.pos(pack.pos() + buf_size); // Advance buffer position
         }
 
@@ -427,7 +427,7 @@ namespace Raft3D
         if (last_idx_in_pack > last_idx_)
         {
             std::string last_idx_val = serialize_ulong(last_idx_in_pack);
-            batch.Put(db_->DefaultColumnFamily(), KEY_LAST_INDEX, last_idx_val);
+            batch.Put(db_->DefaultColumnFamily(), rocksdb::Slice(KEY_LAST_INDEX), rocksdb::Slice(last_idx_val));
             metadata_updated = true; // Mark last_idx_ as updated in the batch
         }
 
@@ -435,7 +435,7 @@ namespace Raft3D
         if (start_idx_needs_update)
         {
             std::string start_idx_val = serialize_ulong(new_start_idx);
-            batch.Put(db_->DefaultColumnFamily(), KEY_START_INDEX, start_idx_val);
+            batch.Put(db_->DefaultColumnFamily(), rocksdb::Slice(KEY_START_INDEX), rocksdb::Slice(start_idx_val));
         }
 
         rocksdb::Status s = db_->Write(rocksdb::WriteOptions(), &batch);
@@ -482,11 +482,11 @@ namespace Raft3D
         std::string end_key = serialize_ulong(new_start_index); // DeleteRange end is exclusive
 
         rocksdb::WriteBatch batch;
-        batch.DeleteRange(log_cf_handle_, start_key, end_key);
+        batch.DeleteRange(log_cf_handle_.get(), rocksdb::Slice(start_key), rocksdb::Slice(end_key));
 
         // Update start index metadata
         std::string start_idx_val = serialize_ulong(new_start_index);
-        batch.Put(db_->DefaultColumnFamily(), KEY_START_INDEX, start_idx_val);
+        batch.Put(db_->DefaultColumnFamily(), rocksdb::Slice(KEY_START_INDEX), rocksdb::Slice(start_idx_val));
 
         rocksdb::Status s = db_->Write(rocksdb::WriteOptions(), &batch);
         if (!s.ok())

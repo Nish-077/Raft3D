@@ -1,7 +1,7 @@
 #pragma once
 
 #include "libnuraft/nuraft.hxx"
-#include "rocksdb/db.hxx"
+#include "rocksdb/db.h"
 #include <vector>
 #include <mutex>
 #include <memory>
