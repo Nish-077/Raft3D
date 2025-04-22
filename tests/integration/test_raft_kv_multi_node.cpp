@@ -11,6 +11,7 @@
 #include <thread>
 #include <chrono>
 #include <filesystem>
+#include "raft3d_logger.hpp" // Add this include
 
 using namespace Raft3D;
 
@@ -69,23 +70,27 @@ TEST_CASE("RaftKVNode multi-node cluster", "[RaftKVNode][multi-node]")
     std::filesystem::remove_all(db_path2);
 
     {
+        // Create logger instances for each node
+        auto logger1 = std::make_shared<Raft3DLogger>();
+        auto logger2 = std::make_shared<Raft3DLogger>();
+
         // Node 1 setup
         RocksDBNodeFixture rocksdb1(db_path1);
-        auto state_machine1 = nuraft::cs_new<RaftKVStateMachine>(rocksdb1.db, rocksdb1.state_cf);
+        auto state_machine1 = nuraft::cs_new<RaftKVStateMachine>(rocksdb1.db, rocksdb1.state_cf, logger1);
         std::vector<Raft3DServer> peers1 = {
             {1, "localhost:10001"},
             {2, "localhost:10002"}};
-        auto state_mgr1 = nuraft::cs_new<RaftKVStateManager>(1, rocksdb1.db, rocksdb1.log_cf, peers1);
-        RaftKVNode node1(1, 10001, state_machine1, state_mgr1, nullptr);
+        auto state_mgr1 = nuraft::cs_new<RaftKVStateManager>(1, rocksdb1.db, rocksdb1.log_cf, peers1, logger1);
+        RaftKVNode node1(1, 10001, state_machine1, state_mgr1, logger1);
 
         // Node 2 setup
         RocksDBNodeFixture rocksdb2(db_path2);
-        auto state_machine2 = nuraft::cs_new<RaftKVStateMachine>(rocksdb2.db, rocksdb2.state_cf);
+        auto state_machine2 = nuraft::cs_new<RaftKVStateMachine>(rocksdb2.db, rocksdb2.state_cf, logger2);
         std::vector<Raft3DServer> peers2 = {
             {1, "localhost:10001"},
             {2, "localhost:10002"}};
-        auto state_mgr2 = nuraft::cs_new<RaftKVStateManager>(2, rocksdb2.db, rocksdb2.log_cf, peers2);
-        RaftKVNode node2(2, 10002, state_machine2, state_mgr2, nullptr);
+        auto state_mgr2 = nuraft::cs_new<RaftKVStateManager>(2, rocksdb2.db, rocksdb2.log_cf, peers2, logger2);
+        RaftKVNode node2(2, 10002, state_machine2, state_mgr2, logger2);
 
         // Wait for both servers to initialize
         for (int i = 0; i < 100; ++i)

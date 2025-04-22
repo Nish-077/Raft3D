@@ -92,11 +92,11 @@ TEST_CASE("RaftKVNode basic operations", "[RaftKVNode]")
     REQUIRE(rocksdb.log_cf != nullptr);
     REQUIRE(rocksdb.state_cf != nullptr);
 
-    auto state_machine = nuraft::cs_new<RaftKVStateMachine>(rocksdb.db, rocksdb.state_cf);
+    auto logger = nuraft::cs_new<Raft3DLogger>();
+    auto state_machine = nuraft::cs_new<RaftKVStateMachine>(rocksdb.db, rocksdb.state_cf, logger);
     std::vector<Raft3DServer> peers = {
         {1, "localhost:10001"}};
-    auto state_mgr = nuraft::cs_new<RaftKVStateManager>(1, rocksdb.db, rocksdb.log_cf, peers);
-    auto logger = nuraft::cs_new<Raft3DLogger>();
+    auto state_mgr = nuraft::cs_new<RaftKVStateManager>(1, rocksdb.db, rocksdb.log_cf, peers, logger);
     RaftKVNode node(1, 10001, state_machine, state_mgr, logger);
 
     // Wait for raft server to be initialized
