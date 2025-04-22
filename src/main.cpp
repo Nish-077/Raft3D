@@ -11,6 +11,7 @@
 #include <iostream>
 #include <crow/json.h>
 #include <sstream>
+#include <set>
 #include <atomic>
 #include <chrono>
 
@@ -58,9 +59,9 @@ int main(int argc, char *argv[])
     std::shared_ptr<rocksdb::ColumnFamilyHandle> state_cf(handles[2], [db](rocksdb::ColumnFamilyHandle *h)
                                                           { if (db && h) db->DestroyColumnFamilyHandle(h); });
 
-    auto state_machine = nuraft::cs_new<RaftKVStateMachine>(db, state_cf);
-    auto state_mgr = nuraft::cs_new<RaftKVStateManager>(node_id, db, log_cf, peers);
     auto logger = nuraft::cs_new<Raft3DLogger>();
+    auto state_machine = nuraft::cs_new<RaftKVStateMachine>(db, state_cf, logger);
+    auto state_mgr = nuraft::cs_new<RaftKVStateManager>(node_id, db, log_cf, peers, logger);
     RaftKVNode node(node_id, raft_port, state_machine, state_mgr, logger);
 
     crow::SimpleApp app;
@@ -243,7 +244,7 @@ int main(int argc, char *argv[])
 
         // Validate print_weight_in_grams does not exceed remaining_weight_in_grams
         auto filament = crow::json::load(filament_val);
-        int remaining = std::stoi(filament["remaining_weight_in_grams"].s());
+        int remaining = filament["remaining_weight_in_grams"].i();
         int requested = body["print_weight_in_grams"].i();
 
         // TODO: Subtract queued/running jobs' weights for this filament
@@ -306,7 +307,11 @@ int main(int argc, char *argv[])
                                                                                  {
         auto query = crow::query_string(req.url_params);
         std::string status = req.url_params.get("status") ? req.url_params.get("status") : "";
+        // Only allow these statuses
+        static const std::set<std::string> allowed_statuses = {"queued", "running", "done", "canceled"};
         if (status.empty()) return crow::response(400, "Missing status\n");
+        if (allowed_statuses.find(status) == allowed_statuses.end())
+            return crow::response(400, "Invalid status value\n");
         std::string job_json;
         if (node.get_key("print_job:" + job_id, job_json) != 0)
             return crow::response(404, "Print job not found\n");
@@ -325,7 +330,7 @@ int main(int argc, char *argv[])
             std::string filament_key = "filament:" + filament_id;
             if (node.get_key(filament_key, filament_json) == 0) {
                 auto filament = crow::json::load(filament_json);
-                int remaining = std::stoi(filament["remaining_weight_in_grams"].s());
+                int remaining = filament["remaining_weight_in_grams"].i();
                 int used = job["print_weight_in_grams"].i();
                 int updated = remaining - used;
                 if (updated < 0) updated = 0;

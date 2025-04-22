@@ -2,6 +2,7 @@
 
 #include "libnuraft/nuraft.hxx"
 #include "libnuraft/basic_types.hxx"
+#include "raft3d_logger.hpp"
 #include "rocksdb/db.h"
 #include <mutex>
 #include <string>
@@ -15,12 +16,13 @@ namespace Raft3D
         std::shared_ptr<rocksdb::DB> db_;
         std::mutex db_mutex_;
         std::shared_ptr<rocksdb::ColumnFamilyHandle> app_state_cf_handle_;
+        std::shared_ptr<Raft3DLogger> logger_;
         nuraft::ulong last_committed_idx_ = 0;
         nuraft::ulong last_snapshot_idx_ = 0;
         nuraft::ulong last_snapshot_term_ = 0;
 
     public:
-        RaftKVStateMachine(std::shared_ptr<rocksdb::DB> rocksdb_instance, std::shared_ptr<rocksdb::ColumnFamilyHandle> app_state_cf_handle);
+        RaftKVStateMachine(std::shared_ptr<rocksdb::DB> rocksdb_instance, std::shared_ptr<rocksdb::ColumnFamilyHandle> app_state_cf_handle, std::shared_ptr<Raft3DLogger> logger);
         ~RaftKVStateMachine() override = default;
 
         nuraft::ptr<nuraft::buffer> commit(const uint64_t log_idx, nuraft::buffer &data) override;

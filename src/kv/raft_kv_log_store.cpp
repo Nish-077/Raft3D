@@ -8,38 +8,49 @@
 #include <memory>
 #include <iostream>
 #include <algorithm> // Required for std::min/std::max
+#include "raft3d_logger.hpp"
 
 namespace Raft3D
 {
     // --- Helper Functions ---
 
     // Simple serialization for ulong (adjust endianness if needed)
-    inline std::string serialize_ulong(nuraft::ulong val)
+    inline std::string serialize_ulong(nuraft::ulong val, Raft3DLogger *logger = nullptr)
     {
-        // Ensure correct size and alignment if needed, this is basic
+        if (logger)
+            logger->put_details(5, __FILE__, __func__, __LINE__, "Serializing ulong: " + std::to_string(val)); // DEBUG level
         return std::string(reinterpret_cast<const char *>(&val), sizeof(val));
     }
 
-    inline nuraft::ulong deserialize_ulong(const rocksdb::Slice &slice)
+    inline nuraft::ulong deserialize_ulong(const rocksdb::Slice &slice, Raft3DLogger *logger = nullptr)
     {
+        if (logger)
+            logger->put_details(5, __FILE__, __func__, __LINE__, "Deserializing ulong from slice of size: " + std::to_string(slice.size())); // DEBUG level
         if (slice.size() != sizeof(nuraft::ulong))
         {
-            // Handle error: incorrect size Or throw
-            return 0; 
+            if (logger)
+                logger->put_details(2, __FILE__, __func__, __LINE__, "Incorrect slice size for ulong deserialization");
+            return 0;
         }
         return *reinterpret_cast<const nuraft::ulong *>(slice.data());
     }
 
-    inline std::string serialize_log_entry(const nuraft::ptr<nuraft::log_entry> &entry)
+    inline std::string serialize_log_entry(const nuraft::ptr<nuraft::log_entry> &entry, Raft3DLogger *logger = nullptr)
     {
+        if (logger)
+            logger->put_details(5, __FILE__, __func__, __LINE__, "Serializing log_entry"); // DEBUG level
         nuraft::ptr<nuraft::buffer> buf = entry->serialize();
         return std::string(reinterpret_cast<const char *>(buf->data_begin()), buf->size());
     }
 
-    inline nuraft::ptr<nuraft::log_entry> deserialize_log_entry(const rocksdb::Slice &slice)
+    inline nuraft::ptr<nuraft::log_entry> deserialize_log_entry(const rocksdb::Slice &slice, Raft3DLogger *logger = nullptr)
     {
+        if (logger)
+            logger->put_details(5, __FILE__, __func__, __LINE__, "Deserializing log_entry from slice of size: " + std::to_string(slice.size())); // DEBUG level
         if (slice.empty())
         {
+            if (logger)
+                logger->put_details(3, __FILE__, __func__, __LINE__, "Empty slice for log_entry deserialization");
             return nullptr;
         }
 
@@ -54,33 +65,37 @@ namespace Raft3D
     {
         if (index == 0)
         {
-            // Return dummy entry for index 0, consistent with inmem_log_store
+            if (logger_)
+                logger_->put_details(4, __FILE__, __func__, __LINE__, "Returning dummy entry for index 0");
             nuraft::ptr<nuraft::buffer> buf = nuraft::buffer::alloc(sizeof(nuraft::ulong));
             return nuraft::cs_new<nuraft::log_entry>(0, buf);
         }
 
         if (index < start_idx_ || index > last_idx_)
         {
-            // Index out of bounds (compacted or not yet written)
+            if (logger_)
+                logger_->put_details(3, __FILE__, __func__, __LINE__, "Index out of bounds in entry_at_internal: " + std::to_string(index));
             return nullptr;
         }
 
-        std::string key = serialize_ulong(index);
+        std::string key = serialize_ulong(index, logger_.get());
         std::string value_str;
         rocksdb::Status s = db_->Get(rocksdb::ReadOptions(), log_cf_handle_.get(), rocksdb::Slice(key), &value_str);
 
         if (s.IsNotFound())
         {
+            if (logger_)
+                logger_->put_details(3, __FILE__, __func__, __LINE__, "Log entry not found at index: " + std::to_string(index));
             return nullptr;
         }
         if (!s.ok())
         {
-            // Handle RocksDB read error
-            std::cerr << "RocksDB Get failed for index " << index << ": " << s.ToString() << std::endl;
+            if (logger_)
+                logger_->put_details(2, __FILE__, __func__, __LINE__, "RocksDB Get failed for index " + std::to_string(index) + ": " + s.ToString());
             return nullptr;
         }
 
-        return deserialize_log_entry(value_str);
+        return deserialize_log_entry(value_str, logger_.get());
     }
 
     // --- Constants for Metadata Keys ---
@@ -90,18 +105,24 @@ namespace Raft3D
     // --- RaftKVLogStore Implementation ---
 
     RaftKVLogStore::RaftKVLogStore(std::shared_ptr<rocksdb::DB> rocksdb_instance,
-                                   std::shared_ptr<rocksdb::ColumnFamilyHandle> log_column_family_handle)
+                                   std::shared_ptr<rocksdb::ColumnFamilyHandle> log_column_family_handle,
+                                   std::shared_ptr<Raft3DLogger> logger)
         : db_(rocksdb_instance),
           log_cf_handle_(log_column_family_handle),
-          start_idx_(1), // Default start index
-          last_idx_(0)   // Default last index (means empty log)
+          logger_(logger),
+          start_idx_(1),
+          last_idx_(0)
     {
         if (!db_)
         {
+            if (logger_)
+                logger_->put_details(2, __FILE__, __func__, __LINE__, "RocksDB instance cannot be null.");
             throw std::invalid_argument("RocksDB instance cannot be null.");
         }
         if (!log_cf_handle_)
         {
+            if (logger_)
+                logger_->put_details(2, __FILE__, __func__, __LINE__, "Log column family handle cannot be null.");
             throw std::invalid_argument("Log column family handle cannot be null.");
         }
 
@@ -110,19 +131,26 @@ namespace Raft3D
         rocksdb::Status s = db_->Get(rocksdb::ReadOptions(), db_->DefaultColumnFamily(), rocksdb::Slice(KEY_START_INDEX), &val_str);
         if (s.ok())
         {
-            start_idx_ = deserialize_ulong(val_str);
+            start_idx_ = deserialize_ulong(val_str, logger_.get());
+            if (logger_)
+                logger_->put_details(4, __FILE__, __func__, __LINE__, "Loaded start_idx_ = " + std::to_string(start_idx_));
         }
-        // If start index is not found, it remains 1 (default)
+        else if (!s.IsNotFound() && logger_)
+        {
+            logger_->put_details(3, __FILE__, __func__, __LINE__, "Failed to load start_idx_: " + s.ToString());
+        }
 
         s = db_->Get(rocksdb::ReadOptions(), db_->DefaultColumnFamily(), rocksdb::Slice(KEY_LAST_INDEX), &val_str);
         if (s.ok())
         {
-            last_idx_ = deserialize_ulong(val_str);
+            last_idx_ = deserialize_ulong(val_str, logger_.get());
+            if (logger_)
+                logger_->put_details(4, __FILE__, __func__, __LINE__, "Loaded last_idx_ = " + std::to_string(last_idx_));
         }
-        // If last index is not found, it remains 0 (default)
-
-        // Ensure dummy entry at index 0 exists if needed (though RocksDB handles missing keys)
-        // We rely on entry_at() to handle index 0 if requested.
+        else if (!s.IsNotFound() && logger_)
+        {
+            logger_->put_details(3, __FILE__, __func__, __LINE__, "Failed to load last_idx_: " + s.ToString());
+        }
     }
 
     nuraft::ulong RaftKVLogStore::next_slot() const
@@ -142,7 +170,7 @@ namespace Raft3D
     {
         std::lock_guard<std::mutex> lock(log_mutex_);
         if (last_idx_ < start_idx_)
-        {                                // Log is empty or only contains dummy index 0
+        { // Log is empty or only contains dummy index 0
             return entry_at_internal(0);
         }
         return entry_at_internal(last_idx_);
@@ -153,74 +181,74 @@ namespace Raft3D
         std::lock_guard<std::mutex> lock(log_mutex_);
         nuraft::ulong idx_to_append = last_idx_ + 1;
 
+        if (logger_)
+            logger_->put_details(5, __FILE__, __func__, __LINE__, "Appending log entry at index " + std::to_string(idx_to_append));
+
         rocksdb::WriteBatch batch;
-        std::string key = serialize_ulong(idx_to_append);
-        std::string val = serialize_log_entry(entry);
+        std::string key = serialize_ulong(idx_to_append, logger_.get());
+        std::string val = serialize_log_entry(entry, logger_.get());
         batch.Put(log_cf_handle_.get(), rocksdb::Slice(key), rocksdb::Slice(val));
 
         // Update last index metadata
-        std::string last_idx_val = serialize_ulong(idx_to_append);
+        std::string last_idx_val = serialize_ulong(idx_to_append, logger_.get());
         batch.Put(db_->DefaultColumnFamily(), rocksdb::Slice(KEY_LAST_INDEX), rocksdb::Slice(last_idx_val));
 
         rocksdb::Status s = db_->Write(rocksdb::WriteOptions(), &batch);
         if (!s.ok())
         {
-            // 1. Log the error (replace with your actual logging mechanism)
-            // logger_->error("Failed to append log entry at index {}: {}", idx_to_append, s.ToString());
-            std::cerr << "ERROR: RocksDB append failed at index " << idx_to_append << ": " << s.ToString() << std::endl; // Placeholder logging
-
-            // 2. Throw an exception to signal critical failure
+            if (logger_)
+                logger_->put_details(2, __FILE__, __func__, __LINE__, "Failed to append log entry at index " + std::to_string(idx_to_append) + ": " + s.ToString());
             throw std::runtime_error("Failed to append log entry: " + s.ToString());
-            // --- End Updated Error Handling ---
         }
         else
         {
-            last_idx_ = idx_to_append; // Update cached value ONLY on success
+            last_idx_ = idx_to_append;
+            if (logger_)
+                logger_->put_details(4, __FILE__, __func__, __LINE__, "Appended log entry at index " + std::to_string(idx_to_append));
         }
 
-        return idx_to_append; // Return the index only if write succeeded
+        return idx_to_append;
     }
 
     void RaftKVLogStore::write_at(nuraft::ulong index, nuraft::ptr<nuraft::log_entry> &entry)
     {
         std::lock_guard<std::mutex> lock(log_mutex_);
 
-        // Determine the range to delete: [index, last_idx_]
+        if (logger_)
+            logger_->put_details(5, __FILE__, __func__, __LINE__, "write_at called for index " + std::to_string(index));
+
         nuraft::ulong current_last = last_idx_;
-        nuraft::ulong new_last = index; // The new last index will be 'index'
+        nuraft::ulong new_last = index;
 
         rocksdb::WriteBatch batch;
 
-        // Delete entries from 'index' onwards if they exist
         if (index <= current_last)
         {
-            // RocksDB DeleteRange is exclusive for the end key, so delete up to last+1
-            std::string start_key = serialize_ulong(index);
-            std::string end_key = serialize_ulong(current_last + 1);
+            std::string start_key = serialize_ulong(index, logger_.get());
+            std::string end_key = serialize_ulong(current_last + 1, logger_.get());
             batch.DeleteRange(log_cf_handle_.get(), rocksdb::Slice(start_key), rocksdb::Slice(end_key));
+            if (logger_)
+                logger_->put_details(4, __FILE__, __func__, __LINE__, "Deleted log entries from index " + std::to_string(index) + " to " + std::to_string(current_last));
         }
 
-        // Write the new entry at 'index'
-        std::string key = serialize_ulong(index);
-        std::string val = serialize_log_entry(entry);
+        std::string key = serialize_ulong(index, logger_.get());
+        std::string val = serialize_log_entry(entry, logger_.get());
         batch.Put(log_cf_handle_.get(), rocksdb::Slice(key), rocksdb::Slice(val));
 
-        // Update last index metadata
-        std::string last_idx_val = serialize_ulong(new_last);
+        std::string last_idx_val = serialize_ulong(new_last, logger_.get());
         batch.Put(db_->DefaultColumnFamily(), rocksdb::Slice(KEY_LAST_INDEX), rocksdb::Slice(last_idx_val));
 
         rocksdb::Status s = db_->Write(rocksdb::WriteOptions(), &batch);
         if (!s.ok())
         {
-            // Handle RocksDB write error - critical!
-            // Log error, maybe throw std::runtime_error?
-            std::cerr << "RocksDB write_at failed: " << s.ToString() << std::endl;
+            if (logger_)
+                logger_->put_details(2, __FILE__, __func__, __LINE__, "RocksDB write_at failed at index " + std::to_string(index) + ": " + s.ToString());
             throw std::runtime_error("Failed to write log entry at index " + std::to_string(index) + ": " + s.ToString());
         }
-        else
-        {
-            last_idx_ = new_last; // Update cached value on success
-        }
+        // Only update last_idx_ if batch succeeded!
+        last_idx_ = new_last;
+        if (logger_)
+            logger_->put_details(4, __FILE__, __func__, __LINE__, "Wrote log entry at index " + std::to_string(index));
     }
 
     nuraft::ptr<std::vector<nuraft::ptr<nuraft::log_entry>>>
@@ -242,17 +270,17 @@ namespace Raft3D
 
         rocksdb::ReadOptions read_options;
         std::unique_ptr<rocksdb::Iterator> it(db_->NewIterator(read_options, log_cf_handle_.get()));
-        std::string start_key = serialize_ulong(start);
+        std::string start_key = serialize_ulong(start, logger_.get());
 
         for (it->Seek(start_key); it->Valid(); it->Next())
         {
-            nuraft::ulong current_idx = deserialize_ulong(it->key());
+            nuraft::ulong current_idx = deserialize_ulong(it->key(), logger_.get());
             if (current_idx >= end)
             {
                 break; // Reached end of requested range
             }
 
-            nuraft::ptr<nuraft::log_entry> entry = deserialize_log_entry(it->value());
+            nuraft::ptr<nuraft::log_entry> entry = deserialize_log_entry(it->value(), logger_.get());
             if (entry)
             {
                 entries->push_back(entry);
@@ -260,7 +288,8 @@ namespace Raft3D
             else
             {
                 // Handle deserialization error - log might be corrupted
-                std::cerr << "Failed to deserialize log entry at index " << current_idx << std::endl;
+                if (logger_)
+                    logger_->put_details(2, __FILE__, __func__, __LINE__, "Failed to deserialize log entry at index " + std::to_string(current_idx));
                 // Maybe return partial results or throw? For now, skip.
             }
         }
@@ -270,7 +299,8 @@ namespace Raft3D
         if (!s.ok())
         {
             // Handle iterator error
-            std::cerr << "RocksDB iterator error in log_entries: " << s.ToString() << std::endl;
+            if (logger_)
+                logger_->put_details(2, __FILE__, __func__, __LINE__, "RocksDB iterator error in log_entries: " + s.ToString());
             // Maybe return partial results or throw?
         }
 
@@ -321,11 +351,11 @@ namespace Raft3D
 
         rocksdb::ReadOptions read_options;
         std::unique_ptr<rocksdb::Iterator> it(db_->NewIterator(read_options, log_cf_handle_.get()));
-        std::string start_key = serialize_ulong(index);
+        std::string start_key = serialize_ulong(index, logger_.get());
 
         for (it->Seek(start_key); it->Valid() && serialized_entries.size() < (size_t)cnt; it->Next())
         {
-            nuraft::ulong current_idx = deserialize_ulong(it->key());
+            nuraft::ulong current_idx = deserialize_ulong(it->key(), logger_.get());
             if (current_idx >= end_index)
                 break; // Should not happen if cnt is correct, but safety check
 
@@ -343,7 +373,8 @@ namespace Raft3D
         if (!s.ok())
         {
             // Handle iterator error - maybe return empty buffer?
-            std::cerr << "RocksDB iterator error in pack: " << s.ToString() << std::endl;
+            if (logger_)
+                logger_->put_details(2, __FILE__, __func__, __LINE__, "RocksDB iterator error in pack: " + s.ToString());
             return nuraft::buffer::alloc(0);
         }
 
@@ -351,7 +382,8 @@ namespace Raft3D
         if (serialized_entries.size() != (size_t)cnt)
         {
             // This might indicate missing entries in the expected range
-            std::cerr << "Warning: pack expected " << cnt << " entries, but found " << serialized_entries.size() << std::endl;
+            if (logger_)
+                logger_->put_details(3, __FILE__, __func__, __LINE__, "Warning: pack expected " + std::to_string(cnt) + " entries, but found " + std::to_string(serialized_entries.size()));
             cnt = serialized_entries.size(); // Adjust count to actual number found
         }
 
@@ -392,13 +424,14 @@ namespace Raft3D
             if (pack.pos() + buf_size > pack.size())
             {
                 // Error: buffer underflow
-                std::cerr << "Error applying pack: buffer underflow at index " << current_idx << std::endl;
+                if (logger_)
+                    logger_->put_details(2, __FILE__, __func__, __LINE__, "Error applying pack: buffer underflow at index " + std::to_string(current_idx));
                 throw std::runtime_error("Buffer underflow during apply_pack");
             }
 
             // Create Slice directly from pack buffer without extra copy
             rocksdb::Slice val_slice(reinterpret_cast<const char *>(pack.data_begin() + pack.pos()), buf_size);
-            std::string key = serialize_ulong(current_idx);
+            std::string key = serialize_ulong(current_idx, logger_.get());
 
             batch.Put(log_cf_handle_.get(), rocksdb::Slice(key), val_slice);
             pack.pos(pack.pos() + buf_size); // Advance buffer position
@@ -416,9 +449,8 @@ namespace Raft3D
             // happen during snapshot installation if compact() wasn't
             // called first, or in complex recovery scenarios.
             // We should update start_idx_ to the beginning of the pack.
-            std::cerr << "Warning: apply_pack received index " << index
-                      << " which is less than current start_idx_ " << start_idx_
-                      << ". Updating start_idx_." << std::endl; // Replace with proper logging
+            if (logger_)
+                logger_->put_details(3, __FILE__, __func__, __LINE__, "Warning: apply_pack received index " + std::to_string(index) + " which is less than current start_idx_ " + std::to_string(start_idx_) + ". Updating start_idx_.");
             new_start_idx = index;
             start_idx_needs_update = true;
         }
@@ -426,7 +458,7 @@ namespace Raft3D
 
         if (last_idx_in_pack > last_idx_)
         {
-            std::string last_idx_val = serialize_ulong(last_idx_in_pack);
+            std::string last_idx_val = serialize_ulong(last_idx_in_pack, logger_.get());
             batch.Put(db_->DefaultColumnFamily(), rocksdb::Slice(KEY_LAST_INDEX), rocksdb::Slice(last_idx_val));
             metadata_updated = true; // Mark last_idx_ as updated in the batch
         }
@@ -434,7 +466,7 @@ namespace Raft3D
         // Add start index update to the batch if needed
         if (start_idx_needs_update)
         {
-            std::string start_idx_val = serialize_ulong(new_start_idx);
+            std::string start_idx_val = serialize_ulong(new_start_idx, logger_.get());
             batch.Put(db_->DefaultColumnFamily(), rocksdb::Slice(KEY_START_INDEX), rocksdb::Slice(start_idx_val));
         }
 
@@ -442,7 +474,8 @@ namespace Raft3D
         if (!s.ok())
         {
             // Handle RocksDB write error
-            std::cerr << "ERROR: RocksDB apply_pack failed: " << s.ToString() << std::endl; // Placeholder logging
+            if (logger_)
+                logger_->put_details(2, __FILE__, __func__, __LINE__, "ERROR: RocksDB apply_pack failed: " + s.ToString());
             throw std::runtime_error("Failed to apply log pack: " + s.ToString());
         }
         else
@@ -463,55 +496,64 @@ namespace Raft3D
     {
         std::lock_guard<std::mutex> lock(log_mutex_);
 
+        if (logger_)
+            logger_->put_details(5, __FILE__, __func__, __LINE__, "Compacting log up to index " + std::to_string(last_log_index));
+
         // Cannot compact beyond the last committed index
         if (last_log_index > last_idx_)
         {
-            return false; // Or log warning?
+            if (logger_)
+                logger_->put_details(3, __FILE__, __func__, __LINE__, "Attempted to compact beyond last_idx_");
+            return false;
         }
 
         // Cannot compact below the current start index
         if (last_log_index < start_idx_)
         {
-            return true; // Nothing to compact in the requested range
+            if (logger_)
+                logger_->put_details(4, __FILE__, __func__, __LINE__, "Nothing to compact: last_log_index < start_idx_");
+            return true;
         }
 
         nuraft::ulong new_start_index = last_log_index + 1;
 
         // Use DeleteRange to remove logs from [start_idx_, last_log_index] inclusive
-        std::string start_key = serialize_ulong(start_idx_);
-        std::string end_key = serialize_ulong(new_start_index); // DeleteRange end is exclusive
+        std::string start_key = serialize_ulong(start_idx_, logger_.get());
+        std::string end_key = serialize_ulong(new_start_index, logger_.get()); // DeleteRange end is exclusive
 
         rocksdb::WriteBatch batch;
         batch.DeleteRange(log_cf_handle_.get(), rocksdb::Slice(start_key), rocksdb::Slice(end_key));
 
         // Update start index metadata
-        std::string start_idx_val = serialize_ulong(new_start_index);
+        std::string start_idx_val = serialize_ulong(new_start_index, logger_.get());
         batch.Put(db_->DefaultColumnFamily(), rocksdb::Slice(KEY_START_INDEX), rocksdb::Slice(start_idx_val));
 
         rocksdb::Status s = db_->Write(rocksdb::WriteOptions(), &batch);
         if (!s.ok())
         {
-            // Handle RocksDB compaction error
-            std::cerr << "RocksDB compact failed: " << s.ToString() << std::endl;
+            if (logger_)
+                logger_->put_details(2, __FILE__, __func__, __LINE__, "RocksDB compact failed: " + s.ToString());
             return false;
         }
 
         // Update cached start index on success
         start_idx_ = new_start_index;
+        if (logger_)
+            logger_->put_details(4, __FILE__, __func__, __LINE__, "Compacted log up to index " + std::to_string(last_log_index));
         return true;
     }
 
     bool RaftKVLogStore::flush()
     {
-        // RocksDB writes with default options (WAL enabled) are typically durable.
-        // If WAL is disabled or explicit sync is desired, call db_->SyncWAL().
-        // For simplicity, assume default durability.
         rocksdb::Status s = db_->SyncWAL(); // Explicitly sync WAL just in case
         if (!s.ok())
         {
-            std::cerr << "RocksDB SyncWAL failed: " << s.ToString() << std::endl;
+            if (logger_)
+                logger_->put_details(2, __FILE__, __func__, __LINE__, "RocksDB SyncWAL failed: " + s.ToString());
             return false;
         }
+        if (logger_)
+            logger_->put_details(5, __FILE__, __func__, __LINE__, "WAL synced successfully.");
         return true;
     }
 
