@@ -18,7 +18,7 @@ The goal of this project is to demonstrate the application of the Raft consensus
 
 ## Architecture
 
-The architecture is based on the Raft consensus algorithm, where a set of 3D printers and a leader node communicate to ensure data consistency and fault tolerance. The leader is responsible for accepting and replicating log entries to the follower nodes. In the case of leader failure, a new leader is elected, and the system continues to operate without disruption.
+The architecture is based on the Raft consensus algorithm, where a set of 3D printers and a leader node communicate to ensure data consistency and fault tolerance. The leader is responsible for accepting and replicating log entries to the follower nodes. In the case of the leader failure, a new leader is elected, and the system continues to operate without disruption.
 
 - **Leader Node**: Coordinates the print job assignments, handles client requests, and maintains consistency across the system.
 - **Follower Nodes**: These nodes replicate the state of the leader and handle print jobs when required.
