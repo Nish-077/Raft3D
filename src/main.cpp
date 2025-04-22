@@ -74,7 +74,7 @@ int main(int argc, char *argv[])
     };
 
     // Add server endpoint (for dynamic cluster expansion)
-    CROW_ROUTE(app, "/add_server/<int>/<string>")
+    CROW_ROUTE(app, "/api/v1/add_server/<int>/<string>")
     ([&node](int id, const std::string &endpoint)
      {
         if (node.addServer(id, endpoint) == 0)
@@ -82,8 +82,8 @@ int main(int argc, char *argv[])
         else
             return crow::response(500, "Failed to add server\n"); });
 
-    CROW_ROUTE(app, "/list_servers").methods("GET"_method)([&node]()
-                                                           {
+    CROW_ROUTE(app, "/api/v1/list_servers").methods("GET"_method)([&node]()
+                                                                  {
         std::vector<Raft3DServer> servers;
         if (node.listServers(servers) != 0) {
             return crow::response(500, "Failed to list servers\n");
@@ -356,8 +356,9 @@ int main(int argc, char *argv[])
             return crow::response(500, "Failed to update job\n");
         return crow::response(200, wjob.dump() + "\n"); });
 
-    CROW_ROUTE(app, "/is_leader").methods("GET"_method)([&node]()
-                                                        {
+    // GET /api/v1/is_leader
+    CROW_ROUTE(app, "/api/v1/is_leader").methods("GET"_method)([&node]()
+                                                               {
         bool is_leader = false;
         auto srv = node.get_server();
         if (srv) {
