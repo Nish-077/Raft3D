@@ -5,44 +5,26 @@
 #include "kv/raft_kv_state_mgr.hpp"
 #include "kv/raft_kv_state_machine.hpp"
 #include <string>
-#include <libnuraft/logger.hxx>
-
-class StdoutLogger : public nuraft::logger
-{
-public:
-    void put_details(int, const char *, const char *, size_t, const std::string &) override {}
-    void set_level(int) override {}
-    int get_level() override { return 0; }
-};
+#include <raft3d_logger.hpp>
 
 namespace Raft3D
 {
-
     RaftKVNode::RaftKVNode(
         int id,
         int raftPort,
         nuraft::ptr<RaftKVStateMachine> stateMachine,
         nuraft::ptr<RaftKVStateManager> stateManager,
-        nuraft::ptr<nuraft::rpc_client_factory> rpc_factory)
+        nuraft::ptr<Raft3DLogger> logger)
         : my_state_machine_(stateMachine),
-          my_state_mgr(stateManager)
+          my_state_mgr(stateManager),
+          my_logger_(logger)
     {
-        my_logger_ = nuraft::cs_new<StdoutLogger>();
-
         launcher_ = nuraft::cs_new<nuraft::raft_launcher>();
         launcher_->init(my_state_machine_, my_state_mgr, my_logger_, raftPort, nuraft::asio_service::options(), nuraft::raft_params());
-
         server_ = launcher_->get_raft_server();
         if (!server_)
         {
             return;
-        }
-
-        int tries = 0;
-        while (!server_->is_initialized() && tries < 100)
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            ++tries;
         }
     }
 
@@ -59,7 +41,7 @@ namespace Raft3D
     {
         if (!server_->is_leader())
         {
-            return -1;
+            return -2; // Special code for not leader
         }
         nuraft::ulong key_size = key.size();
         nuraft::ulong value_size = value.size();
@@ -101,6 +83,22 @@ namespace Raft3D
             servers.push_back({srv->get_id(), srv->get_endpoint()});
         }
         return 0;
+    }
+
+    std::string RaftKVNode::get_leader_address()
+    {
+        if (!server_)
+            return "";
+        auto leader_id = server_->get_leader();
+        auto config = my_state_mgr->load_config();
+        for (auto &srv : config->get_servers())
+        {
+            if (srv->get_id() == leader_id)
+            {
+                return srv->get_endpoint();
+            }
+        }
+        return "";
     }
 
 } // namespace Raft3D
