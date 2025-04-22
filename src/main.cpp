@@ -2,6 +2,7 @@
 #include "kv/raft_kv_node.hpp"
 #include "kv/raft_kv_state_machine.hpp"
 #include "kv/raft_kv_state_mgr.hpp"
+#include "raft3d_logger.hpp"
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
 #include <memory>
@@ -57,12 +58,10 @@ int main(int argc, char *argv[])
     std::shared_ptr<rocksdb::ColumnFamilyHandle> state_cf(handles[2], [db](rocksdb::ColumnFamilyHandle *h)
                                                           { if (db && h) db->DestroyColumnFamilyHandle(h); });
 
-    // State machine and state manager
     auto state_machine = nuraft::cs_new<RaftKVStateMachine>(db, state_cf);
     auto state_mgr = nuraft::cs_new<RaftKVStateManager>(node_id, db, log_cf, peers);
-
-    // Raft node
-    RaftKVNode node(node_id, raft_port, state_machine, state_mgr, nullptr);
+    auto logger = nuraft::cs_new<Raft3DLogger>();
+    RaftKVNode node(node_id, raft_port, state_machine, state_mgr, logger);
 
     crow::SimpleApp app;
 
@@ -114,26 +113,33 @@ int main(int argc, char *argv[])
 
         // Serialize and store
         std::string key = "printer:" + id;
-        if (node.put_key(key, wbody.dump()) != 0)
+        int res = node.put_key(key, wbody.dump());
+        if (res == -2) {
+            std::string leader_addr = node.get_leader_address();
+            std::string msg = "Not leader. Leader is at: " + (leader_addr.empty() ? "unknown" : leader_addr) + "\n";
+            return crow::response(403, msg);
+        }
+        if (res != 0)
             return crow::response(500, "Failed to store printer\n");
 
         // Update printers list
         std::string ids_json;
-        std::vector<std::string> ids;
+        crow::json::wvalue id_arr = crow::json::wvalue::list();
         if (node.get_key("printers", ids_json) == 0) {
             auto arr = crow::json::load(ids_json);
-            for (auto& v : arr) ids.push_back(v.s());
+            size_t idx = 0;
+            for (auto& v : arr)
+                id_arr[idx++] = v.s();
         }
-        ids.push_back(id);
-
-        crow::json::wvalue arr = crow::json::wvalue::list();
-        size_t idx = 0;
-        for (auto& id : ids) {
-            std::string val;
-            if (node.get_key("printer:" + id, val) == 0)
-                arr[idx++] = crow::json::load(val);
+        id_arr[id_arr.size()] = id; // add the new printer id
+        int list_res = node.put_key("printers", id_arr.dump());
+        if (list_res == -2) {
+            std::string leader_addr = node.get_leader_address();
+            std::string msg = "Not leader. Leader is at: " + (leader_addr.empty() ? "unknown" : leader_addr) + "\n";
+            return crow::response(403, msg);
         }
-        node.put_key("printers", arr.dump());
+        if (list_res != 0)
+            return crow::response(500, "Failed to update printers list\n");
 
         return crow::response(201, wbody.dump() + "\n"); });
 
@@ -168,25 +174,33 @@ int main(int argc, char *argv[])
         wbody["id"] = id;
 
         std::string key = "filament:" + id;
-        if (node.put_key(key, wbody.dump()) != 0)
+        int res = node.put_key(key, wbody.dump());
+        if (res == -2) {
+            std::string leader_addr = node.get_leader_address();
+            std::string msg = "Not leader. Leader is at: " + (leader_addr.empty() ? "unknown" : leader_addr) + "\n";
+            return crow::response(403, msg);
+        }
+        if (res != 0)
             return crow::response(500, "Failed to store filament\n");
 
-        // Update filaments list
+        // Update filaments list (store only IDs)
         std::string ids_json;
-        std::vector<std::string> ids;
+        crow::json::wvalue id_arr = crow::json::wvalue::list();
         if (node.get_key("filaments", ids_json) == 0) {
             auto arr = crow::json::load(ids_json);
-            for (auto& v : arr) ids.push_back(v.s());
+            size_t idx = 0;
+            for (auto& v : arr)
+                id_arr[idx++] = v.s();
         }
-        ids.push_back(id);
-        crow::json::wvalue arr = crow::json::wvalue::list();
-        size_t idx = 0;
-        for (auto& id : ids) {
-            std::string val;
-            if (node.get_key("printer:" + id, val) == 0)
-                arr[idx++] = crow::json::load(val);
+        id_arr[id_arr.size()] = id; // add the new filament id
+        int list_res = node.put_key("filaments", id_arr.dump());
+        if (list_res == -2) {
+            std::string leader_addr = node.get_leader_address();
+            std::string msg = "Not leader. Leader is at: " + (leader_addr.empty() ? "unknown" : leader_addr) + "\n";
+            return crow::response(403, msg);
         }
-        node.put_key("filaments", arr.dump());
+        if (list_res != 0)
+            return crow::response(500, "Failed to update filaments list\n");
 
         return crow::response(201, wbody.dump() + "\n"); });
 
@@ -238,28 +252,36 @@ int main(int argc, char *argv[])
 
         std::string id = generate_id();
         wbody["id"] = id;
-        wbody["status"] = "Queued";
+        wbody["status"] = "queued";
 
         std::string key = "print_job:" + id;
-        if (node.put_key(key, wbody.dump()) != 0)
+        int res = node.put_key(key, wbody.dump());
+        if (res == -2) {
+            std::string leader_addr = node.get_leader_address();
+            std::string msg = "Not leader. Leader is at: " + (leader_addr.empty() ? "unknown" : leader_addr) + "\n";
+            return crow::response(403, msg);
+        }
+        if (res != 0)
             return crow::response(500, "Failed to store print job\n");
 
-        // Update print_jobs list
+        // Update print_jobs list (store only IDs)
         std::string ids_json;
-        std::vector<std::string> ids;
+        crow::json::wvalue id_arr = crow::json::wvalue::list();
         if (node.get_key("print_jobs", ids_json) == 0) {
             auto arr = crow::json::load(ids_json);
-            for (auto& v : arr) ids.push_back(v.s());
+            size_t idx = 0;
+            for (auto& v : arr)
+                id_arr[idx++] = v.s();
         }
-        ids.push_back(id);
-        crow::json::wvalue arr = crow::json::wvalue::list();
-        size_t idx = 0;
-        for (auto& id : ids) {
-            std::string val;
-            if (node.get_key("printer:" + id, val) == 0)
-                arr[idx++] = crow::json::load(val);
+        id_arr[id_arr.size()] = id; // add the new print job id
+        int list_res = node.put_key("print_jobs", id_arr.dump());
+        if (list_res == -2) {
+            std::string leader_addr = node.get_leader_address();
+            std::string msg = "Not leader. Leader is at: " + (leader_addr.empty() ? "unknown" : leader_addr) + "\n";
+            return crow::response(403, msg);
         }
-        node.put_key("print_jobs", arr.dump());
+        if (list_res != 0)
+            return crow::response(500, "Failed to update print jobs list\n");
 
         return crow::response(201, wbody.dump() + "\n"); });
 
@@ -300,7 +322,8 @@ int main(int argc, char *argv[])
             // Reduce filament's remaining_weight_in_grams
             std::string filament_id = job["filament_id"].s();
             std::string filament_json;
-            if (node.get_key("filament:" + filament_id, filament_json) == 0) {
+            std::string filament_key = "filament:" + filament_id;
+            if (node.get_key(filament_key, filament_json) == 0) {
                 auto filament = crow::json::load(filament_json);
                 int remaining = std::stoi(filament["remaining_weight_in_grams"].s());
                 int used = job["print_weight_in_grams"].i();
@@ -308,7 +331,17 @@ int main(int argc, char *argv[])
                 if (updated < 0) updated = 0;
                 crow::json::wvalue wfilament = filament;
                 wfilament["remaining_weight_in_grams"] = updated;
-                node.put_key("filament:" + filament_id, wfilament.dump());
+                int res = node.put_key(filament_key, wfilament.dump());
+                if (res == -2) {
+                    std::string leader_addr = node.get_leader_address();
+                    std::string msg = "Not leader. Leader is at: " + (leader_addr.empty() ? "unknown" : leader_addr) + "\n";
+                    return crow::response(403, msg);
+                }
+                if (res != 0)
+                    return crow::response(500, "Failed to update print job status\n");
+            }
+            else {
+                return crow::response(400, "Filament not found\n");
             }
         }
         
@@ -317,6 +350,20 @@ int main(int argc, char *argv[])
         if (node.put_key("print_job:" + job_id, wjob.dump()) != 0)
             return crow::response(500, "Failed to update job\n");
         return crow::response(200, wjob.dump() + "\n"); });
+
+    CROW_ROUTE(app, "/is_leader").methods("GET"_method)([&node]()
+                                                        {
+        bool is_leader = false;
+        auto srv = node.get_server();
+        if (srv) {
+            is_leader = srv->is_leader();
+        }
+        crow::json::wvalue resp;
+        resp["is_leader"] = is_leader;
+        if (!is_leader) {
+            resp["leader_address"] = node.get_leader_address();
+        }
+        return crow::response(200, resp.dump() + "\n"); });
 
     int crow_port = 18080 + node_id;
     std::cout << "RaftKVNode HTTP API running on port " << crow_port << "\n";
