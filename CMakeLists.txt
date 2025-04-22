@@ -15,7 +15,7 @@ add_subdirectory(external/crow)
 add_subdirectory(external/nuraft)
 
 # Common include directories and libraries
-set(RAFT3D_INCLUDE_DIRS
+set(RAFT3D_INCLUDE_DIR
     external/nuraft/include
     external/crow/include
     /usr/include
